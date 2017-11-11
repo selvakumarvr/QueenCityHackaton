@@ -1,0 +1,139 @@
+---
+title: "Cardinal"
+author: "Ken Bury"
+date: "Saturday, November 11, 2017"
+output: html_document
+---
+## Introduction
+
+
+
+## Data
+
+
+```{r}
+library(doParallel)
+
+library(caret)
+library(foreach)
+library(iterators)
+library(parallel)
+library(lattice)
+library(ggplot2)
+library(randomForest)
+```
+
+```{r}
+## prepare for parallel processing
+n_Cores <- detectCores()
+n_Cluster <- makeCluster(n_Cores)
+registerDoParallel(n_Cluster)
+
+outcomes_training <- read.csv("outcomes_training.csv", header=TRUE,na.strings = c("NA", ""))
+
+perHackID <- read.csv("perHackID.csv", header=TRUE,na.strings = c("NA", ""))
+changeCols = names(perHackID)[6:25]
+
+plm.training <- merge(outcomes_training, perHackID, by="HackID")
+plm.training$crisis <- factor(plm.training$crisis)
+plm.training = plm.training[,2:ncol(plm.training)]
+
+rm(perHackID)
+rm(outcomes_training)
+
+#pml.training <- read.csv("D:\Ken Bury\Hackathon\CardinalOutcomes\pml-training.csv", header=TRUE,na.strings = c("NA", ""))
+#pml.testing <- read.csv("D:/Ken Bury/Hackathon/PracticalMachineLearning/pml-testing.csv", header=TRUE,na.strings = c("NA", ""))
+```
+## Review the data
+```{r, eval=FALSE}
+summary(plm.training)
+```
+Summary output removed for brevity.
+
+I think the diagnosis columns should all be binary.
+```{r}
+for (nm in changeCols){
+	plm.training[,nm] = factor(as.numeric(as.character(plm.training[,nm])) > 0)
+	#plm.testing[,nm] = factor(as.numeric(as.character(plm.testing[,nm])) > 0)
+}
+
+```
+
+
+
+```{r}
+
+#inTrain = createDataPartition(pml.training$classe, p = .75)[[1]]
+# training = plm.training
+# testing = plm.training
+```
+A plot of a few variables to show how this data is grouped.
+```{r}
+featurePlot(x=plm.training[,1:5],
+                y = plm.training$crisis,
+                plot="pairs",
+                auto.key = list(columns = 2))
+```
+
+
+
+The data is grouped in clusters so this would be best modelled by a non linear method like random forests. 
+
+#JUST for dev
+```{r}
+#plm.training = plm.training[1:4000,]
+```
+
+
+## Model training
+
+The model is trained with the training set. Typically a random forest uses a bootstrap sampling method however this takes a long time to run and did not appear to improve the model as compared to the faster k-fold cross validation method that I use in the following to develop the model.
+
+```{r}
+# I hit an error here. This page was helpful:
+# https://github.com/topepo/caret/issues/706
+modFit <- train(crisis~ .,data=plm.training,method="LogitBoost",prox=TRUE,trControl = trainControl(method = "cv", number = 2), importance = TRUE)
+modFit
+modFit$finalModel
+```
+Note the estimate error is 0.63%
+
+## Model verification 
+```{r}
+perHackID <- read.csv("perHackID.csv", header=TRUE,na.strings = c("NA", ""))
+
+outcomes_testing1 <- read.csv("outcomes_testing1.csv", header=TRUE,na.strings = c("NA", ""))
+
+plm.testing <- merge(outcomes_testing1, perHackID, by="HackID")
+plm.testing$crisis <- factor(plm.testing$crisis)
+plm.testing = plm.testing[,2:ncol(plm.testing)]
+
+for (nm in changeCols){
+	#plm.training[,nm] = factor(as.numeric(as.character(plm.training[,nm])) > 0)
+	plm.testing[,nm] = factor(as.numeric(as.character(plm.testing[,nm])) > 0)
+}
+
+rm(perHackID)
+```
+
+
+The model is verified with the test set.
+```{r}
+pred <- predict(modFit,plm.testing); plm.testing$predRight <- pred==plm.testing$crisis
+```
+Confusion matrix
+```{r}
+confusionMatrix(pred, plm.testing$crisis)
+```
+## Review out of sample error and estimate error.
+
+The out of sample accuracy is 0.9945. So the out of sample error is 1 - 0.9945 = 0.55%  Comparing that to the estimate error from the model which is 0.63% The error rates are expected to be similar. 
+
+## Final results
+
+The prediction using the formal test set:
+```{r}
+final_pred <- predict(modFit,plm.testing)
+#final_pred
+
+```
